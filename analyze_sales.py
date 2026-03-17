@@ -1,11 +1,39 @@
 import os
 import sys
+import urllib.request
 
 # Suppress PySpark deprecation warnings and set Python paths
 os.environ['JAVA_HOME'] = r"C:\Program Files\Java\openlogic-openjdk-17.0.18+8-windows-x64"
 os.environ['SPARK_LOCAL_IP'] = '127.0.0.1'
 os.environ['PYSPARK_PYTHON'] = sys.executable
 os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
+
+# Fix Hadoop Home on Windows to resolve access0 UnsatisfiedLinkError
+base_dir = os.path.dirname(os.path.abspath(__file__))
+hadoop_home = os.path.join(base_dir, "hadoop")
+hadoop_bin = os.path.join(hadoop_home, "bin")
+
+os.makedirs(hadoop_bin, exist_ok=True)
+
+def download_file(url, filepath):
+    if not os.path.exists(filepath):
+        print(f"Downloading {url}...")
+        try:
+            urllib.request.urlretrieve(url, filepath)
+        except Exception as e:
+            print(f"Failed to download {url}: {e}")
+
+# Download winutils.exe and hadoop.dll
+hadoop_version = "hadoop-3.3.0"
+base_url = f"https://github.com/cdarlint/winutils/raw/master/{hadoop_version}/bin/"
+
+download_file(base_url + "winutils.exe", os.path.join(hadoop_bin, "winutils.exe"))
+download_file(base_url + "hadoop.dll", os.path.join(hadoop_bin, "hadoop.dll"))
+
+# Set environment variables for Hadoop
+os.environ['HADOOP_HOME'] = hadoop_home
+if hadoop_bin not in os.environ['PATH']:
+    os.environ['PATH'] = hadoop_bin + os.pathsep + os.environ['PATH']
 
 import findspark
 findspark.init()
