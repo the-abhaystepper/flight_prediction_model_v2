@@ -2,8 +2,10 @@ import os
 import sys
 import numpy as np
 import findspark
+import mlflow
 
 findspark.init()
+
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -60,8 +62,8 @@ def main():
     print("\n--- 2. Distributed Feature Engineering with Spark SQL ---")
 
     # A. 12:00 MIDDAY Neutral Math fallback fallback logic if conversion crashes
-    # Equivalent to continuous hours math
-    cont_hour_formula = (F.col("SCHEDULED_DEPARTURE").cast("int") / 100) + \
+    # Fixed to use integer division via casting
+    cont_hour_formula = ((F.col("SCHEDULED_DEPARTURE").cast("int") / 100).cast("int")) + \
                         ((F.col("SCHEDULED_DEPARTURE").cast("int") % 100) / 60.0)
 
     # Apply continuous math, defaulting to 12.0
@@ -185,12 +187,25 @@ def main():
 
     print(f"{'Model':<25} | {'Acc':<7} | {'Prec':<7} | {'Rec':<7} | {'F1':<7}")
     print("-" * 65)
-    for name, pr in [("Random Forest (Tuned)", p_rf_test), 
-                     ("GBT (Boosting)", p_gbt_test), 
-                     ("SVM", p_svm_test),
-                     ("STACKED MODEL", p_stacked_test)]:
-        a, prc, r, f = get_metrics(pr, test_labels)
-        print(f"{name:<25} | {a:.4f}  | {prc:.4f}  | {r:.4f}  | {f:.4f}")
+
+    # MLflow Tracking block
+    with mlflow.start_run(run_name="flight_stacked_model"):
+        mlflow.log_param("features", len(feature_cols))
+        
+        for name, pr in [("Random Forest (Tuned)", p_rf_test), 
+                         ("GBT (Boosting)", p_gbt_test), 
+                         ("SVM", p_svm_test),
+                         ("STACKED MODEL", p_stacked_test)]:
+            a, prc, r, f = get_metrics(pr, test_labels)
+            print(f"{name:<25} | {a:.4f}  | {prc:.4f}  | {r:.4f}  | {f:.4f}")
+            
+            # Log metrics only for the final stacked model
+            if name == "STACKED MODEL":
+                mlflow.log_metric("accuracy", a)
+                mlflow.log_metric("precision", prc)
+                mlflow.log_metric("recall", r)
+                mlflow.log_metric("f1_score", f)
+                # Note: mlflow.spark.log_model(meta_model, "stacked_flight_model") could save the actual model
 
     # ===== CASSANDRA SAVE MODULE =====
     print(f"\n--- 6. Saving Stacked Predictions to Cassandra ({KEYSPACE}.{TABLE_WRITE}) ---")

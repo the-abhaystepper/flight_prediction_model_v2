@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  cassandra_mlops:
+    image: cassandra:latest
+    container_name: cassandra_devops
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=FlightCluster
+
+volumes:
+  cassandra_data:
