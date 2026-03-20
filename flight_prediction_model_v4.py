@@ -19,7 +19,7 @@ TABLE_READ = "flights"
 TABLE_WRITE = "predictions" 
 
 # Suppress PySpark deprecation warnings and set Python paths
-os.environ['JAVA_HOME'] = r"C:\Program Files\Java\openlogic-openjdk-17.0.18+8-windows-x64"
+os.environ['JAVA_HOME'] = r"C:\Program Files\OpenJDK\openlogic-openjdk-17.0.18+8-windows-x64"
 os.environ['SPARK_LOCAL_IP'] = '127.0.0.1'
 os.environ['PYSPARK_PYTHON'] = sys.executable
 os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
