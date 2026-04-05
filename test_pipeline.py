@@ -6,8 +6,10 @@ from pyspark.sql import functions as F
 
 findspark.init()
 
-# Ensure pytest bypasses windows issues
-os.environ['JAVA_HOME'] = r"C:\Program Files\OpenJDK\openlogic-openjdk-17.0.18+8-windows-x64"
+# Ensure pytest bypasses environment issues
+if 'JAVA_HOME' not in os.environ and sys.platform == 'win32':
+    os.environ['JAVA_HOME'] = r"C:\Program Files\OpenJDK\openlogic-openjdk-17.0.18+8-windows-x64"
+
 os.environ['SPARK_LOCAL_IP'] = '127.0.0.1'
 os.environ['PYSPARK_PYTHON'] = sys.executable
 os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
