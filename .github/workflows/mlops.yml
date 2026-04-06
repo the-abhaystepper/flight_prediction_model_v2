@@ -41,13 +41,16 @@ jobs:
         run: |
           pytest test_pipeline.py -v
 
-      - name: Sleep for Cassandra to accept Connections
-        run: sleep 40
+      - name: Prepare Cassandra Keyspace (Native)
+        run: |
+          # Native CQL execution is more reliable than Spark Catalog for DDL
+          docker exec cassandra cqlsh -e "CREATE KEYSPACE IF NOT EXISTS flight_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};"
+          echo "Keyspace Created."
 
-      - name: Prepare Cassandra Keyspace and Data (CI)
+      - name: Populate Cassandra Data (CI)
         run: |
           python prep_cassandra_ci.py
-          echo "Cassandra Initialized."
+          echo "Data Ingested."
 
       - name: Run Full Model Training Run
         run: |

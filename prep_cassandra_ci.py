@@ -22,9 +22,8 @@ def main():
         .config("spark.sql.catalog.cassandra", "com.datastax.spark.connector.datasource.CassandraCatalog") \
         .getOrCreate()
     
-    #Create keyspace on localhost
-    print("Initializing Keyspace 'flight_ks'...")
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS cassandra.flight_ks WITH PROPERTIES ('replication' = \"{'class':'SimpleStrategy', 'replication_factor':1}\")")
+    # Keyspace is created by CI workflow via docker exec; ingest directly
+    print("Catalog initialized. Commencing Data Ingestion...")
     
     #Check if there is data to load
     if os.path.exists("flight.csv"):
