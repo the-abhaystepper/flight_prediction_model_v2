@@ -34,8 +34,11 @@ def main():
         for col_name in df.columns:
             df = df.withColumnRenamed(col_name, col_name.upper())
         
-        #Primary key (year, month, day, airline, origin_airport)
-        df.writeTo("cassandra.flight_ks.flights").create()
+        # Stream and Append directly since the table was created natively
+        df.write.format("org.apache.spark.sql.cassandra") \
+                .options(table="flights", keyspace="flight_ks") \
+                .mode("append") \
+                .save()
         print("Ingestion Finished.")
     else:
         print("Warning: flight.csv missing. CI training run might fail later.")
