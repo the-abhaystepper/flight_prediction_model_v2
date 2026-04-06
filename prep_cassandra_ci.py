@@ -24,7 +24,7 @@ def main():
     
     #Create keyspace on localhost
     print("Initializing Keyspace 'flight_ks'...")
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS cassandra.flight_ks WITH ('replication' = \"{'class':'SimpleStrategy', 'replication_factor':1}\")")
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS cassandra.flight_ks WITH PROPERTIES ('replication' = \"{'class':'SimpleStrategy', 'replication_factor':1}\")")
     
     #Check if there is data to load
     if os.path.exists("flight.csv"):
