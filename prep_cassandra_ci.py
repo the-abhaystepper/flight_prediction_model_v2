@@ -30,9 +30,9 @@ def main():
         print("Feeding flight.csv rows into Cassandra for CI training run...")
         df = spark.read.option("header", "true").option("inferSchema", "true").csv("flight.csv")
         
-        #Normalize columns for Cassandra
+        #Normalize columns for Cassandra (Lower-case is default for C* schema)
         for col_name in df.columns:
-            df = df.withColumnRenamed(col_name, col_name.upper())
+            df = df.withColumnRenamed(col_name, col_name.lower())
         
         # Stream and Append directly since the table was created natively
         df.write.format("org.apache.spark.sql.cassandra") \
