@@ -42,7 +42,12 @@ jobs:
           pytest test_pipeline.py -v
 
       - name: Sleep for Cassandra to accept Connections
-        run: sleep 20
+        run: sleep 40
+
+      - name: Prepare Cassandra Keyspace and Data (CI)
+        run: |
+          python prep_cassandra_ci.py
+          echo "Cassandra Initialized."
 
       - name: Run Full Model Training Run
         run: |
