@@ -14,15 +14,14 @@ from pyspark.ml.classification import RandomForestClassifier, GBTClassifier, Lin
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 
-# Cassandra Connection Configurations
+#Cassandra connection configurations
 CASSANDRA_HOST = "127.0.0.1"
 KEYSPACE = "flight_ks"
 TABLE_READ = "flights"
 TABLE_WRITE = "predictions" 
 
-# Suppress PySpark deprecation warnings and set Python paths
-if 'JAVA_HOME' not in os.environ and sys.platform == 'win32':
-    os.environ['JAVA_HOME'] = r"C:\Program Files\OpenJDK\openlogic-openjdk-17.0.18+8-windows-x64"
+#Set Python paths
+os.environ['JAVA_HOME'] = r"C:\Program Files\OpenJDK\openlogic-openjdk-17.0.18+8-windows-x64"
 
 os.environ['SPARK_LOCAL_IP'] = '127.0.0.1'
 os.environ['PYSPARK_PYTHON'] = sys.executable
@@ -40,20 +39,19 @@ def main():
     sc = spark.sparkContext
     sc.setLogLevel("ERROR")
 
-    print(f"\n--- 1. Pulling Data from Cassandra ({KEYSPACE}.{TABLE_READ}) ---")
+    print(f"\nPulling data from Cassandra ({KEYSPACE}.{TABLE_READ})")
     
-    # Read distributed df directly from Cassandra
+    #Read distributed df directly from Cassandra
     spark_df = spark.read \
         .format("org.apache.spark.sql.cassandra") \
         .options(table=TABLE_READ, keyspace=KEYSPACE) \
         .load()
 
-    # Convert all columns to UPPERCASE to resolve Cassandra case-insensitivity
+    #Resolve Cassandra case-insensitivity
     for col_name in spark_df.columns:
         spark_df = spark_df.withColumnRenamed(col_name, col_name.upper())
 
-    # Pre-cleaning to ensure types (Month, Day, DOW which are usually integers)
-    # Target columns must be visible
+    #Pre-cleaning
     required_cols = ['MONTH', 'DAY', 'DAY_OF_WEEK', 'AIRLINE', 
                      'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT', 
                      'SCHEDULED_DEPARTURE', 'SCHEDULED_TIME', 
@@ -61,17 +59,13 @@ def main():
     
     spark_df = spark_df.dropna(subset=required_cols)
 
-    print("\n--- 2. Distributed Feature Engineering with Spark SQL ---")
+    print("\nDistributed feature engineering with Spark SQL")
 
-    # A. 12:00 MIDDAY Neutral Math fallback fallback logic if conversion crashes
-    # Fixed to use integer division via casting
     cont_hour_formula = ((F.col("SCHEDULED_DEPARTURE").cast("int") / 100).cast("int")) + \
                         ((F.col("SCHEDULED_DEPARTURE").cast("int") % 100) / 60.0)
 
-    # Apply continuous math, defaulting to 12.0
     spark_df = spark_df.withColumn("DEP_HOUR_CONT", F.coalesce(cont_hour_formula, F.lit(12.0)))
     
-    # Cyclical trigger calculation Math (PI)
     PI = 2 * np.pi
 
     spark_df = spark_df \
@@ -85,47 +79,48 @@ def main():
         .withColumn("DOW_SIN", F.sin(F.col("DAY_OF_WEEK") * (PI / 7))) \
         .withColumn("DOW_COS", F.cos(F.col("DAY_OF_WEEK") * (PI / 7)))
 
-    print("Computing Airport Delay Metrics (Target Encoding)...")
+    print("Computing airport delay metrics (Target Encoding)")
     origin_mean = spark_df.groupBy("ORIGIN_AIRPORT").agg(F.mean("DELAY").alias("ORIGIN_DELAY_RATE"))
     dest_mean = spark_df.groupBy("DESTINATION_AIRPORT").agg(F.mean("DELAY").alias("DEST_DELAY_RATE"))
 
-    # Join computed weight keys back to distributed matrix
+    #Join computed weight keys back to distributed matrix
     spark_df = spark_df.join(origin_mean, on="ORIGIN_AIRPORT", how="left") \
                        .join(dest_mean, on="DESTINATION_AIRPORT", how="left") \
                        .fillna(0.2, subset=["ORIGIN_DELAY_RATE", "DEST_DELAY_RATE"])
 
-    print("Balancing dataset across nodes...")
+    print("Balancing dataset across nodes")
     delay_df = spark_df.filter(F.col("DELAY") == 1)
     no_delay_df = spark_df.filter(F.col("DELAY") == 0)
 
     delay_count = delay_df.count()
     no_delay_count = no_delay_df.count()
 
-    # Determine fraction ratio for balanced distribution approximation
+    #Determine fraction ratio for balanced distribution approximation
     fraction = delay_count / no_delay_count if no_delay_count > 0 else 1.0
     fraction = min(fraction, 1.0)
 
     no_delay_sampled = no_delay_df.sample(withReplacement=False, fraction=fraction, seed=42)
     balanced_df = delay_df.union(no_delay_sampled)
 
-    print("Executing One-Hot Encoding and Indexing in Spark...")
-    # AIRLINE Categorical setup
+    print("Executing one-hot encoding and indexing in Spark")
+
+    #AIRLINE Categorical conversion
     airline_indexer = StringIndexer(inputCol="AIRLINE", outputCol="AIRLINE_INDEX", handleInvalid="skip")
     balanced_df = airline_indexer.fit(balanced_df).transform(balanced_df)
 
     airline_encoder = OneHotEncoder(inputCol="AIRLINE_INDEX", outputCol="AIRLINE_VEC")
     balanced_df = airline_encoder.fit(balanced_df).transform(balanced_df)
 
-    # Features to Assembler
+    #Features to Assembler
     feature_cols = ['SCHEDULED_TIME', 'DISTANCE', 'DEP_HOUR_SIN', 'DEP_HOUR_COS',
                     'MONTH_SIN', 'MONTH_COS', 'DAY_SIN', 'DAY_COS', 'DOW_SIN', 'DOW_COS',
                     'ORIGIN_DELAY_RATE', 'DEST_DELAY_RATE', 'AIRLINE_VEC']
 
-    # Vector Assembler
+    #Vector Assembler
     assembler = VectorAssembler(inputCols=feature_cols, outputCol="raw_features")
     spark_df = assembler.transform(balanced_df)
 
-    print("Splitting data for Stacking (60% Base, 20% Meta, 20% Test)...")
+    print("Splitting data for Stacking (60% Base, 20% Test, 20% Meta)")
     train_base_df, train_meta_df, test_df = spark_df.randomSplit([0.6, 0.2, 0.2], seed=42)
 
     scaler = MinMaxScaler(inputCol="raw_features", outputCol="features")
@@ -134,7 +129,7 @@ def main():
     train_meta_df = scaler_model.transform(train_meta_df).cache()
     test_df = scaler_model.transform(test_df).cache()
 
-    print("\n--- 3. Spark Cross-Validation Tuning (RF) ---")
+    print("\nTraining RF")
     rf = RandomForestClassifier(labelCol="DELAY", featuresCol="features")
     paramGrid = ParamGridBuilder().addGrid(rf.maxDepth, [5, 10]).addGrid(rf.numTrees, [20, 50]).build()
     evaluator_auc = BinaryClassificationEvaluator(labelCol="DELAY", metricName="areaUnderROC")
@@ -143,15 +138,15 @@ def main():
     cvModel = cv.fit(train_base_df)
     rf_best = cvModel.bestModel
 
-    print("\n--- 4. Training Gradient Boosted Trees ---")
+    print("\nTraining GBT")
     gbt = GBTClassifier(labelCol="DELAY", featuresCol="features", maxIter=50)
     gbt_model = gbt.fit(train_base_df)
 
-    print("Training SVM Base...")
+    print("Training SVM Base")
     svm = LinearSVC(labelCol="DELAY", featuresCol="features", maxIter=100)
     svm_model = svm.fit(train_base_df)
 
-    print("\n--- 5. Implementing Stacking Meta-Classifier ---")
+    print("\nImplementing stacking meta-classifier")
     p_rf_meta = rf_best.transform(train_meta_df).withColumnRenamed("prediction", "p_rf").drop("rawPrediction", "probability")
     p_gbt_meta = gbt_model.transform(p_rf_meta).withColumnRenamed("prediction", "p_gbt").drop("rawPrediction", "probability")
     pred_meta = svm_model.transform(p_gbt_meta).withColumnRenamed("prediction", "p_svm").drop("rawPrediction")
@@ -162,7 +157,7 @@ def main():
     lr_meta = LogisticRegression(labelCol="DELAY", featuresCol="meta_features")
     meta_model = lr_meta.fit(pred_meta)
 
-    print("\n--- Final Evaluation ---")
+    print("\nFinal Evaluation")
     p_rf_test_df = rf_best.transform(test_df).withColumnRenamed("prediction", "p_rf").drop("rawPrediction", "probability")
     p_gbt_test_df = gbt_model.transform(p_rf_test_df).withColumnRenamed("prediction", "p_gbt").drop("rawPrediction", "probability")
     pred_test = svm_model.transform(p_gbt_test_df).withColumnRenamed("prediction", "p_svm").drop("rawPrediction")
@@ -190,7 +185,7 @@ def main():
     print(f"{'Model':<25} | {'Acc':<7} | {'Prec':<7} | {'Rec':<7} | {'F1':<7}")
     print("-" * 65)
 
-    # MLflow Tracking block
+    #MLflow Tracking block
     with mlflow.start_run(run_name="flight_stacked_model"):
         mlflow.log_param("features", len(feature_cols))
         
@@ -201,17 +196,15 @@ def main():
             a, prc, r, f = get_metrics(pr, test_labels)
             print(f"{name:<25} | {a:.4f}  | {prc:.4f}  | {r:.4f}  | {f:.4f}")
             
-            # Log metrics only for the final stacked model
+            #Log metrics for the final stacked model
             if name == "STACKED MODEL":
                 mlflow.log_metric("accuracy", a)
                 mlflow.log_metric("precision", prc)
                 mlflow.log_metric("recall", r)
                 mlflow.log_metric("f1_score", f)
-                # Note: mlflow.spark.log_model(meta_model, "stacked_flight_model") could save the actual model
 
-    # ===== CASSANDRA SAVE MODULE =====
-    print(f"\n--- 6. Saving Stacked Predictions to Cassandra ({KEYSPACE}.{TABLE_WRITE}) ---")
-    # Usually you save only keys and targeted weights for downstream displays
+    print(f"\nSaving stacked predictions to Cassandra ({KEYSPACE}.{TABLE_WRITE})")
+
     if "FLIGHT_ID" in spark_df.columns:
          save_df = pred_stacked.select("FLIGHT_ID", "p_stacked")
          save_df.write \
@@ -221,9 +214,9 @@ def main():
              .save()
          print("Write Success to Cassandra.")
     else:
-         print("Missing 'FLIGHT_ID' identifier. Code not pushed back to Table out of safety.")
+         print("Missing 'FLIGHT_ID' identifier.")
 
-    print("\nPipeline completed distributed sweep.")
+    print("\nPipeline completed.")
     spark.stop()
 
 if __name__ == "__main__":

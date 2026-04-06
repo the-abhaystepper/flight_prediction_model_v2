@@ -46,7 +46,5 @@ jobs:
 
       - name: Run Full Model Training Run
         run: |
-          # Optional: You would run flight_prediction_model_v4.py here 
-          # using a subset mock dataset stored in the github repository 
-          # so training finishes faster during tests.
+          python flight_prediction_model_v4.py
           echo "Tests swept perfectly. MLOps execution finished."
