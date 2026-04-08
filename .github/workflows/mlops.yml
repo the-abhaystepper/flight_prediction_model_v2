@@ -54,6 +54,10 @@ jobs:
           python prep_cassandra_ci.py
           echo "Data Ingested."
 
+      - name: Initialize MLflow DB and check for upgrades
+        run: |
+          python -m mlflow db upgrade "sqlite:///mlflow.db"
+
       - name: Run Full Model Training Run
         run: |
           python flight_prediction_model_v4.py
