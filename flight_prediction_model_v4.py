@@ -187,6 +187,8 @@ def main():
     print("-" * 65)
 
     #MLflow Tracking block
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    
     with mlflow.start_run(run_name="flight_stacked_model"):
         mlflow.log_param("features", len(feature_cols))
         
