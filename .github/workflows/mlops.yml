@@ -12,8 +12,6 @@ jobs:
   test_and_train:
     runs-on: ubuntu-latest
 
-    # Manual management of container for named 'docker exec' support
-
     steps:
       - uses: actions/checkout@v3
 
